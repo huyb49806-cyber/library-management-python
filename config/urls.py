@@ -7,4 +7,5 @@ urlpatterns = [
     path("", home, name="home"),
     path("admin/", admin.site.urls),
     path("api/v1/auth/", include("accounts.api_urls")),
+    path("api/v1/circulation/", include("circulation.api_urls")),
 ]

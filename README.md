@@ -16,7 +16,7 @@ Django project organized into three domains, following the MDN Local Library tut
 4. Run `python manage.py createsuperuser`.
 5. Run `python manage.py runserver`.
 
-The React frontend consumes `/api/v1/auth/`. The API uses Django's built-in `auth.User`, Group and Permission models. Catalog and circulation endpoints are intentionally not implemented yet.
+The React frontend consumes `/api/v1/`. The API uses Django's built-in `auth.User`, Group and Permission models. Catalog endpoints remain reserved for the teammate branch; circulation endpoints use the MDN copy contract.
 
 ## API endpoints
 
@@ -28,3 +28,10 @@ The React frontend consumes `/api/v1/auth/`. The API uses Django's built-in `aut
 - `POST /api/v1/auth/password-reset/confirm/`
 - `GET/POST /api/v1/auth/admin/users/` (admin only)
 - `GET/PATCH/DELETE /api/v1/auth/admin/users/<id>/` (admin only)
+
+## Circulation API
+
+- `GET /api/v1/circulation/loans/`
+- `POST /api/v1/circulation/loans/borrow/`
+- `PATCH /api/v1/circulation/loans/<book-instance-uuid>/renew/`
+- `POST /api/v1/circulation/loans/<book-instance-uuid>/return/`
