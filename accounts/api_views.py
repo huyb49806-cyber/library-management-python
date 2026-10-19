@@ -15,7 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .api_serializers import (AdminUserSerializer, MeSerializer,
                               PasswordResetConfirmSerializer,
-                              PasswordResetRequestSerializer)
+                              PasswordResetRequestSerializer, RegisterSerializer)
 from .models import UserProfile
 
 User = get_user_model()
@@ -28,6 +28,16 @@ class LoginView(APIView):
         serializer = TokenObtainPairSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data)
+
+
+class RegisterView(generics.CreateAPIView):
+    permission_classes = ()
+    serializer_class = RegisterSerializer
+
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        response.data = {"detail": "Account created. You can now log in.", "user": response.data}
+        return response
 
 
 class LogoutView(APIView):

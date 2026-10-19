@@ -3,10 +3,11 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from .api_views import (AdminUserDetailView, AdminUserListCreateView, LoginView,
                         LogoutView, MeView, PasswordResetConfirmView,
-                        PasswordResetRequestView)
+                        PasswordResetRequestView, RegisterView)
 
 urlpatterns = [
     path("login/", LoginView.as_view(), name="api-login"),
+    path("register/", RegisterView.as_view(), name="api-register"),
     path("refresh/", TokenRefreshView.as_view(), name="api-refresh"),
     path("logout/", LogoutView.as_view(), name="api-logout"),
     path("me/", MeView.as_view(), name="api-me"),

@@ -26,3 +26,10 @@ Requires an authenticated Django staff user.
 - `GET/PATCH/DELETE admin/users/<id>/`
 
 Groups are assigned by sending group names such as `Member`, `Librarian`, or `Admin` in the `groups` field. The groups must first exist in Django Admin.
+## Public registration
+
+```text
+POST /api/v1/auth/register/
+```
+
+The endpoint accepts `username`, `email`, `first_name`, `last_name`, `password`, `password_confirm`, and optional `student_code` and `phone`. New accounts are assigned to the `Member` group and must log in separately after registration.
