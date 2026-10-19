@@ -18,9 +18,14 @@ class CatalogListCreateView(generics.ListCreateAPIView):
         queryset = self.queryset.all()
         search = self.request.query_params.get("search", "").strip()
         if search and self.search_fields:
+            terms = search_query.split()
             query = Q()
-            for field in self.search_fields:
-                query |= Q(**{f"{field}__icontains": search})
+            for term in terms:
+                term_query = Q()
+                for field in self.search_fields:
+                    term_query |= Q(**{f"{field}__icontains": term})
+                query &= term_query
+                
             queryset = queryset.filter(query)
         return queryset
 

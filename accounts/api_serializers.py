@@ -15,14 +15,22 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class MeSerializer(serializers.ModelSerializer):
-    profile = ProfileSerializer()
+    profile = ProfileSerializer(required=False)
     groups = serializers.SlugRelatedField(many=True, read_only=True, slug_field="name")
-
+    
     class Meta:
         model = User
         fields = ("id", "username", "email", "first_name", "last_name", "is_active", "groups", "profile")
         read_only_fields = ("id", "username", "is_active", "groups")
-
+    def validate_email(self, value):
+        user = getattr(self.context.get('request'), 'user', None)
+        qs = User.objects.filter(email__iexact=value)
+        if user and user.pk:
+            qs = qs.exclude(pk=user.pk)
+        if qs.exists():
+            raise serializers.ValidationError("Email already exists.")
+        return value
+    
     def update(self, instance, validated_data):
         profile_data = validated_data.pop("profile", {})
         for field, value in validated_data.items():
@@ -44,13 +52,25 @@ class AdminUserSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "email", "first_name", "last_name", "is_active", "is_staff", "groups", "password")
         read_only_fields = ("id",)
 
+    def validate_email(self, value):
+        qs = User.objects.filter(email__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("Email already exists.")
+        return value
+    
     def create(self, validated_data):
         groups = validated_data.pop("groups", [])
         password = validated_data.pop("password", None)
         user = User(**validated_data)
-        user.set_password(password or get_random_string(16))
+
+        generated_password = password or f"{user.username}@123"
+        user.set_password(generated_password)
         user.save()
         user.groups.set(groups)
+
+        user._temporary_password = generated_password
         return user
 
     def update(self, instance, validated_data):

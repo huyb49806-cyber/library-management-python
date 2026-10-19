@@ -42,15 +42,23 @@ class BorrowView(CirculationView):
         book_instance_id = request.data.get("book_instance_id")
         if not member_id or not book_instance_id:
             return Response({"detail": "member_id and book_instance_id are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            member_id = int(member_id)
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid member_id format. Must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             member = User.objects.get(pk=member_id, is_active=True)
-            instance = borrow(book_instance_id, member)
         except User.DoesNotExist:
             return Response({"detail": "Member does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            instance = borrow(book_instance_id, member)
         except CatalogContractError as error:
             return self.catalog_error(error)
-        except (ValueError, KeyError):
-            return Response({"detail": "Book instance is unavailable"}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, KeyError) as e:
+            return Response({"detail": f"Book instance is unavailable: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as error:
             model = get_book_model()
             if isinstance(error, model.DoesNotExist):
