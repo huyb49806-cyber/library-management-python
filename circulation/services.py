@@ -75,7 +75,7 @@ def renew(book_instance_id, new_due_back):
     require_circulation_contract(model)
     with transaction.atomic():
         instance = model.objects.select_for_update().get(pk=book_instance_id)
-        if instance.borrower_id is None:
+        if instance.borrower_id is None or instance.status != status_value(model, "on_loan"):
             raise ValueError("Book instance has no borrower")
         if instance.due_back and new_due_back <= instance.due_back:
             raise ValueError("New due date must be later than the current due date")
@@ -89,7 +89,7 @@ def return_book(book_instance_id):
     require_circulation_contract(model)
     with transaction.atomic():
         instance = model.objects.select_for_update().get(pk=book_instance_id)
-        if instance.borrower_id is None:
+        if instance.borrower_id is None or instance.status != status_value(model, "on_loan"):
             raise ValueError("Book instance has no borrower")
         instance.borrower = None
         instance.due_back = None

@@ -2,12 +2,29 @@ from django.db.models import Count, Q
 from rest_framework import generics, permissions
 
 from .models import Author, Book, BookInstance, Genre, Language
-from .serializers import AuthorSerializer, BookInstanceSerializer, BookSerializer, GenreSerializer, LanguageSerializer
+from .serializers import (
+    AuthorSerializer,
+    BookInstanceSerializer,
+    BookSerializer,
+    GenreSerializer,
+    LanguageSerializer,
+)
 
 
 class ReadOrAdminPermission(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.method in permissions.SAFE_METHODS or bool(request.user and request.user.is_staff)
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_staff
+                or user.groups.filter(name="Admin").exists()
+            )
+        )
 
 
 class CatalogListCreateView(generics.ListCreateAPIView):
@@ -17,16 +34,18 @@ class CatalogListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         queryset = self.queryset.all()
         search = self.request.query_params.get("search", "").strip()
+
         if search and self.search_fields:
-            terms = search_query.split()
             query = Q()
-            for term in terms:
+
+            for term in search.split():
                 term_query = Q()
                 for field in self.search_fields:
                     term_query |= Q(**{f"{field}__icontains": term})
                 query &= term_query
-                
+
             queryset = queryset.filter(query)
+
         return queryset
 
 
@@ -68,13 +87,34 @@ class LanguageDetailView(CatalogDetailView):
 
 
 class BookListCreateView(CatalogListCreateView):
-    queryset = Book.objects.select_related("author", "language").prefetch_related("genre").annotate(annotated_total_copies=Count("instances", distinct=True), annotated_available_copies=Count("instances", filter=Q(instances__status=BookInstance.AVAILABLE), distinct=True))
+    queryset = (
+        Book.objects
+        .select_related("author", "language")
+        .prefetch_related("genre")
+        .annotate(
+            annotated_total_copies=Count("instances", distinct=True),
+            annotated_available_copies=Count(
+                "instances",
+                filter=Q(instances__status=BookInstance.AVAILABLE),
+                distinct=True,
+            ),
+        )
+    )
     serializer_class = BookSerializer
-    search_fields = ("title", "isbn", "author__first_name", "author__last_name")
+    search_fields = (
+        "title",
+        "isbn",
+        "author__first_name",
+        "author__last_name",
+    )
 
 
 class BookDetailView(CatalogDetailView):
-    queryset = Book.objects.select_related("author", "language").prefetch_related("genre")
+    queryset = (
+        Book.objects
+        .select_related("author", "language")
+        .prefetch_related("genre")
+    )
     serializer_class = BookSerializer
 
 
