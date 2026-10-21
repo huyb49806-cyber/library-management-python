@@ -93,83 +93,12 @@ class MeView(generics.RetrieveUpdateAPIView):
         return self.request.user
 
 
-class PasswordResetRequestView(APIView):
-    permission_classes = ()
-
-    def post(self, request):
-        serializer = PasswordResetRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        users = User.objects.filter(
-            email__iexact=serializer.validated_data["email"],
-            is_active=True,
-        )
-
-        for user in users:
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
-            token = default_token_generator.make_token(user)
-            reset_url = (
-                f"{settings.FRONTEND_PASSWORD_RESET_URL}"
-                f"?uid={uid}&token={token}"
-            )
-            send_mail(
-                "Local Library password reset",
-                f"Reset your password: {reset_url}",
-                None,
-                [user.email],
-            )
-
-        return Response({
-            "detail": "If the email exists, a reset link was sent."
-        })
+class PasswordResetRequestView:
+    pass
 
 
-class PasswordResetConfirmView(APIView):
-    permission_classes = ()
-
-    def post(self, request):
-        serializer = PasswordResetConfirmSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            user_id = urlsafe_base64_decode(
-                serializer.validated_data["uid"]
-            ).decode()
-            user = User.objects.get(pk=user_id)
-        except (
-            ValueError,
-            TypeError,
-            OverflowError,
-            User.DoesNotExist,
-        ):
-            return Response(
-                {"detail": "invalid reset link"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not default_token_generator.check_token(
-            user,
-            serializer.validated_data["token"],
-        ):
-            return Response(
-                {"detail": "invalid or expired reset link"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        new_password = serializer.validated_data["new_password"]
-
-        try:
-            validate_password(new_password, user=user)
-        except ValidationError as error:
-            return Response(
-                {"new_password": list(error.messages)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        user.set_password(new_password)
-        user.save(update_fields=["password"])
-
-        return Response({"detail": "password changed"})
+class PasswordResetConfirmView:
+    pass
 
 
 class AdminUserListCreateView(generics.ListCreateAPIView):
