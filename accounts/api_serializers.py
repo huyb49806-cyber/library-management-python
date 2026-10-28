@@ -9,6 +9,14 @@ User = get_user_model()
 
 
 class ProfileSerializer(serializers.ModelSerializer):
+    student_code = serializers.CharField(
+        max_length=30,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        validators=[],
+    )
+
     class Meta:
         model = UserProfile
         fields = ("student_code", "phone", "date_of_birth")
@@ -53,6 +61,28 @@ class MeSerializer(serializers.ModelSerializer):
 
         if queryset.exists():
             raise serializers.ValidationError("Email already exists.")
+
+        return value
+
+    def validate_profile(self, value):
+        student_code = value.get("student_code")
+
+        if student_code == "":
+            value["student_code"] = None
+            return value
+
+        if student_code is None:
+            return value
+
+        matches = UserProfile.objects.filter(student_code=student_code)
+        if self.instance:
+            # self.instance lúc này là User object, ta so sánh với user_id của UserProfile
+            matches = matches.exclude(user_id=self.instance.pk)
+
+        if matches.exists():
+            raise serializers.ValidationError({
+                "student_code": "Mã sinh viên đã được sử dụng."
+            })
 
         return value
 

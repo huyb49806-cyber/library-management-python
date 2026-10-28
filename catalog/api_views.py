@@ -1,5 +1,6 @@
 from django.db.models import Count, Q
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
 
 from .models import Author, Book, BookInstance, Genre, Language
 from .serializers import (
@@ -116,6 +117,23 @@ class BookDetailView(CatalogDetailView):
         .prefetch_related("genre")
     )
     serializer_class = BookSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        book = self.get_object()
+
+        if book.instances.exists():
+            return Response(
+                {
+                    "detail": (
+                        "Không thể xóa đầu sách khi còn bản sao. "
+                        "Hãy ghi nhận trả các bản đang mượn, rồi xóa các bản sao trước."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        self.perform_destroy(book)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class BookInstanceListCreateView(CatalogListCreateView):

@@ -38,6 +38,26 @@ class BookInstanceSerializer(serializers.ModelSerializer):
         fields = ("id", "book", "book_title", "imprint", "due_back", "borrower", "borrower_name", "status", "status_label", "is_overdue", "can_mark_returned")
         read_only_fields = ("id", "borrower", "due_back", "is_overdue", "can_mark_returned")
 
+    def validate(self, attrs):
+        current_status = self.instance.status if self.instance else None
+        requested_status = attrs.get("status", current_status)
+
+        if self.instance is None and requested_status == BookInstance.ON_LOAN:
+            raise serializers.ValidationError({
+                "status": "Use the circulation API to loan a book instance."
+            })
+
+        if (
+            current_status == BookInstance.ON_LOAN
+            and "status" in attrs
+            and requested_status != BookInstance.ON_LOAN
+        ):
+            raise serializers.ValidationError({
+                "status": "Return the book through the circulation API first."
+            })
+
+        return attrs
+
 
 class BookSerializer(serializers.ModelSerializer):
     author_detail = AuthorSerializer(source="author", read_only=True)
