@@ -181,3 +181,14 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (IsAdminOperator,)
     serializer_class = AdminUserSerializer
     queryset = User.objects.all()
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        if user.borrowed_book_instances.filter(status="o").exists():
+            return Response(
+                {
+                    "detail": "Không thể xóa tài khoản độc giả đang có sách mượn chưa trả. Vui lòng ghi nhận trả sách trước."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)

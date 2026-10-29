@@ -46,10 +46,14 @@ def is_staff_operator(user):
 
 
 def as_payload(instance):
+    book = getattr(instance, "book", None)
+    borrower = getattr(instance, "borrower", None)
     return {
         "id": str(instance.pk),
         "book_id": str(instance.book_id) if instance.book_id else None,
+        "book_title": book.title if book else "",
         "borrower_id": str(instance.borrower_id) if instance.borrower_id else None,
+        "borrower_name": borrower.username if borrower else "",
         "status": instance.status,
         "due_back": instance.due_back,
         "is_overdue": bool(instance.due_back and date.today() > instance.due_back),
@@ -57,6 +61,7 @@ def as_payload(instance):
 
 
 def borrow(book_instance_id, member):
+    book_instance_id = str(book_instance_id).strip()
     model = get_book_model()
     require_circulation_contract(model)
     with transaction.atomic():
@@ -71,6 +76,7 @@ def borrow(book_instance_id, member):
 
 
 def renew(book_instance_id, new_due_back):
+    book_instance_id = str(book_instance_id).strip()
     model = get_book_model()
     require_circulation_contract(model)
     with transaction.atomic():
@@ -85,6 +91,7 @@ def renew(book_instance_id, new_due_back):
 
 
 def return_book(book_instance_id):
+    book_instance_id = str(book_instance_id).strip()
     model = get_book_model()
     require_circulation_contract(model)
     with transaction.atomic():

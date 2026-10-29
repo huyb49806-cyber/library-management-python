@@ -1,6 +1,8 @@
 from datetime import date
 
+from django.db.models import Q
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -62,45 +64,108 @@ class BorrowView(CirculationView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        member_id = request.data.get("member_id")
-        book_instance_id = request.data.get("book_instance_id")
+        raw_member_id = request.data.get("member_id")
+        raw_book_instance_id = request.data.get("book_instance_id")
 
-        if not member_id or not book_instance_id:
+        if not raw_member_id or not raw_book_instance_id:
             return Response(
-                {"detail": "member_id and book_instance_id are required"},
+                {"detail": "Vui lòng cung cấp thông tin độc giả (member_id) và bản sao sách (book_instance_id)."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            member_id = int(member_id)
-        except (ValueError, TypeError):
+        member_str = str(raw_member_id).strip()
+        member = None
+        if member_str.isdigit():
+            member = User.objects.filter(pk=int(member_str), is_active=True).first()
+        if not member:
+            member = User.objects.filter(username__iexact=member_str, is_active=True).first()
+        if not member:
+            member = User.objects.filter(email__iexact=member_str, is_active=True).first()
+        if not member:
+            member = User.objects.filter(profile__student_code__iexact=member_str, is_active=True).first()
+
+        if not member:
             return Response(
-                {"detail": "Invalid member_id format. Must be an integer."},
+                {"detail": f"Không tìm thấy độc giả với thông tin: '{raw_member_id}'. Vui lòng nhập đúng ID hoặc Tên đăng nhập."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        model = get_book_model()
+        require_circulation_contract(model)
+
+        inst_str = str(raw_book_instance_id).strip()
+        target_instance_id = None
+
+        # 1. Tìm trực tiếp theo UUID của BookInstance
         try:
-            member = User.objects.get(pk=member_id, is_active=True)
-        except User.DoesNotExist:
+            matched_inst = model.objects.filter(pk=inst_str).first()
+            if matched_inst:
+                if matched_inst.status == status_value(model, "available"):
+                    target_instance_id = matched_inst.pk
+                else:
+                    # Bản sao này đang bận, tự động lấy bản sao khác có sẵn của cùng đầu sách
+                    other_inst = model.objects.filter(
+                        book_id=matched_inst.book_id,
+                        status=status_value(model, "available")
+                    ).first()
+                    if other_inst:
+                        target_instance_id = other_inst.pk
+                    else:
+                        return Response(
+                            {"detail": f"Bản sao '{inst_str}' ({matched_inst.book.title}) hiện không có sẵn (đang mượn hoặc bảo trì) và đầu sách này đã hết bản sao sẵn có trong kho."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+        except (ValueError, ValidationError):
+            target_instance_id = None
+
+        # 2. Nếu không phải UUID, tìm theo Book ID (số nguyên)
+        if not target_instance_id and inst_str.isdigit():
+            matched_inst = model.objects.filter(
+                book_id=int(inst_str),
+                status=status_value(model, "available")
+            ).first()
+            if matched_inst:
+                target_instance_id = matched_inst.pk
+            else:
+                if model.objects.filter(book_id=int(inst_str)).exists():
+                    return Response(
+                        {"detail": f"Đầu sách #{inst_str} hiện đã hết bản sao sẵn có trong kho."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+        # 3. Tìm theo Tên sách hoặc Mã ISBN
+        if not target_instance_id:
+            matched_inst = model.objects.filter(
+                Q(book__title__iexact=inst_str) | Q(book__isbn=inst_str),
+                status=status_value(model, "available")
+            ).first()
+            if matched_inst:
+                target_instance_id = matched_inst.pk
+            elif model.objects.filter(Q(book__title__iexact=inst_str) | Q(book__isbn=inst_str)).exists():
+                return Response(
+                    {"detail": f"Sách '{inst_str}' hiện đã hết bản sao sẵn có trong kho."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if not target_instance_id:
             return Response(
-                {"detail": "Member does not exist"},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"detail": f"Không tìm thấy bản sao sách với thông tin: '{raw_book_instance_id}'. Vui lòng chọn bản sao có sẵn hoặc nhập đúng UUID / ID sách."},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
         try:
-            instance = borrow(book_instance_id, member)
+            instance = borrow(target_instance_id, member)
         except CatalogContractError as error:
             return self.catalog_error(error)
         except (ValueError, KeyError) as error:
             return Response(
-                {"detail": f"Book instance is unavailable: {error}"},
+                {"detail": f"Không thể lập lượt mượn: {error}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception as error:
-            model = get_book_model()
-            if isinstance(error, model.DoesNotExist):
+            if isinstance(error, (model.DoesNotExist, ValidationError)):
                 return Response(
-                    {"detail": "Book instance does not exist"},
+                    {"detail": "Bản sao sách không tồn tại hoặc không hợp lệ."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
             raise
@@ -135,7 +200,7 @@ class RenewView(CirculationView):
             return self.catalog_error(error)
         except Exception as error:
             model = get_book_model()
-            if isinstance(error, model.DoesNotExist):
+            if isinstance(error, (model.DoesNotExist, ValidationError)):
                 return Response(
                     {"detail": "Book instance does not exist"},
                     status=status.HTTP_404_NOT_FOUND,
@@ -164,7 +229,7 @@ class ReturnView(CirculationView):
             return self.catalog_error(error)
         except Exception as error:
             model = get_book_model()
-            if isinstance(error, model.DoesNotExist):
+            if isinstance(error, (model.DoesNotExist, ValidationError)):
                 return Response(
                     {"detail": "Book instance does not exist"},
                     status=status.HTTP_404_NOT_FOUND,

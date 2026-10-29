@@ -1,4 +1,6 @@
+from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.deletion import ProtectedError, RestrictedError
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 
@@ -52,6 +54,17 @@ class CatalogListCreateView(generics.ListCreateAPIView):
 
 class CatalogDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = (ReadOrAdminPermission,)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except (ProtectedError, RestrictedError):
+            return Response(
+                {
+                    "detail": "Không thể xóa mục này vì đang được sử dụng bởi các dữ liệu khác trong thư viện."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
 
 class AuthorListCreateView(CatalogListCreateView):
@@ -118,20 +131,11 @@ class BookDetailView(CatalogDetailView):
     )
     serializer_class = BookSerializer
 
+    @transaction.atomic
     def destroy(self, request, *args, **kwargs):
         book = self.get_object()
-
-        if book.instances.exists():
-            return Response(
-                {
-                    "detail": (
-                        "Không thể xóa đầu sách khi còn bản sao. "
-                        "Hãy ghi nhận trả các bản đang mượn, rồi xóa các bản sao trước."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
-            )
-
+        # Admin có toàn quyền xóa đầu sách, tự động xóa các bản sao trong kho
+        book.instances.all().delete()
         self.perform_destroy(book)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

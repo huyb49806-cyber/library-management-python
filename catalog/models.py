@@ -67,7 +67,7 @@ class BookInstance(models.Model):
     RESERVED = "r"
     STATUS_CHOICES = ((AVAILABLE, "Available"), (ON_LOAN, "On loan"), (MAINTENANCE, "Maintenance"), (RESERVED, "Reserved"))
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     book = models.ForeignKey(Book, on_delete=models.RESTRICT, related_name="instances")
     imprint = models.CharField(max_length=200, blank=True)
     due_back = models.DateField(null=True, blank=True)

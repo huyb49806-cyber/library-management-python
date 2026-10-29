@@ -1,3 +1,4 @@
+import uuid
 from rest_framework import serializers
 
 from .models import Author, Book, BookInstance, Genre, Language
@@ -27,6 +28,7 @@ class LanguageSerializer(serializers.ModelSerializer):
 
 
 class BookInstanceSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(required=False, default=uuid.uuid4)
     book_title = serializers.CharField(source="book.title", read_only=True)
     borrower_name = serializers.CharField(source="borrower.username", read_only=True, allow_null=True)
     status_label = serializers.CharField(source="get_status_display", read_only=True)
@@ -36,7 +38,7 @@ class BookInstanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = BookInstance
         fields = ("id", "book", "book_title", "imprint", "due_back", "borrower", "borrower_name", "status", "status_label", "is_overdue", "can_mark_returned")
-        read_only_fields = ("id", "borrower", "due_back", "is_overdue", "can_mark_returned")
+        read_only_fields = ("borrower", "due_back", "is_overdue", "can_mark_returned")
 
     def validate(self, attrs):
         current_status = self.instance.status if self.instance else None

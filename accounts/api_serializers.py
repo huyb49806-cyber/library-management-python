@@ -237,6 +237,11 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError("Email already exists.")
         return value
 
+    def validate_student_code(self, value):
+        if value and UserProfile.objects.filter(student_code__iexact=value).exists():
+            raise serializers.ValidationError("Mã sinh viên đã được sử dụng.")
+        return value
+
     def validate(self, attrs):
         password = attrs["password"]
         password_confirm = attrs.pop("password_confirm")
