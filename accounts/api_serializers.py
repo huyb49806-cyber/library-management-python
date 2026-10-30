@@ -147,6 +147,17 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
         return value
 
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, "copy") else dict(data)
+        role = data.get("role")
+        if role:
+            data["groups"] = [role]
+        elif "groups" in data:
+            groups_val = data["groups"]
+            if isinstance(groups_val, str):
+                data["groups"] = [groups_val]
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         password = attrs.get("password")
 
@@ -181,11 +192,31 @@ class AdminUserSerializer(serializers.ModelSerializer):
                     "password": "Mật khẩu quá yếu."
                 })
 
+        # Phân quyền: chỉ được chọn đúng 1 trong 3 vai trò
+        groups = attrs.get("groups")
+        if self.instance is None and not groups:
+            member_group, _ = Group.objects.get_or_create(name="Member")
+            attrs["groups"] = [member_group]
+        elif groups is not None:
+            if len(groups) != 1:
+                raise serializers.ValidationError({
+                    "groups": "Mỗi tài khoản chỉ được phân đúng 1 trong 3 vai trò (Member, Librarian hoặc Admin)."
+                })
+            group_name = groups[0].name
+            if group_name not in ["Member", "Librarian", "Admin"]:
+                raise serializers.ValidationError({
+                    "groups": f"Vai trò '{group_name}' không hợp lệ. Chỉ chấp nhận Member, Librarian hoặc Admin."
+                })
+
         return attrs
 
     def create(self, validated_data):
         groups = validated_data.pop("groups", [])
         password = validated_data.pop("password")
+
+        is_staff_role = any(g.name in ["Admin", "Librarian"] for g in groups)
+        validated_data["is_staff"] = is_staff_role
+
         user = User(**validated_data)
         user.set_password(password)
         user.save()
@@ -201,6 +232,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
         if password:
             instance.set_password(password)
+
+        if groups is not None:
+            is_staff_role = any(g.name in ["Admin", "Librarian"] for g in groups)
+            instance.is_staff = is_staff_role
 
         instance.save()
 
