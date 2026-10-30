@@ -1,44 +1,7 @@
 from datetime import date, timedelta
 
-from django.apps import apps
 from django.db import transaction
-
-
-class CatalogContractError(RuntimeError):
-    pass
-
-
-BOOK_MODEL_LABELS = ("catalog.BookInstance", "books.BookCopy", "domains.books.BookCopy")
-
-
-def get_book_model():
-    for label in BOOK_MODEL_LABELS:
-        app_label, model_name = label.split(".")
-        try:
-            return apps.get_model(app_label, model_name)
-        except LookupError:
-            continue
-    raise CatalogContractError("A catalog BookInstance/BookCopy model is not installed")
-
-
-def require_circulation_contract(model):
-    fields = {field.name for field in model._meta.get_fields()}
-    missing = {"id", "status", "due_back", "borrower"} - fields
-    if missing:
-        raise CatalogContractError(
-            f"Catalog model {model._meta.label} is missing circulation fields: {', '.join(sorted(missing))}"
-        )
-
-
-def status_value(model, semantic):
-    choices = dict(model._meta.get_field("status").choices or [])
-    aliases = {"available": ("a", "Available", "available"), "on_loan": ("o", "On loan", "on_loan")}
-    for candidate in aliases[semantic]:
-        if candidate in choices:
-            return candidate
-        if candidate in choices.values():
-            return next(key for key, value in choices.items() if value == candidate)
-    return aliases[semantic][0]
+from catalog.models import BookInstance
 
 
 def is_staff_operator(user):
@@ -62,13 +25,11 @@ def as_payload(instance):
 
 def borrow(book_instance_id, member):
     book_instance_id = str(book_instance_id).strip()
-    model = get_book_model()
-    require_circulation_contract(model)
     with transaction.atomic():
-        instance = model.objects.select_for_update().get(pk=book_instance_id)
-        if instance.status != status_value(model, "available"):
-            raise ValueError("Book instance is not available")
-        instance.status = status_value(model, "on_loan")
+        instance = BookInstance.objects.select_for_update().get(pk=book_instance_id)
+        if instance.status != BookInstance.AVAILABLE:
+            raise ValueError("Bản sao sách hiện không có sẵn để mượn.")
+        instance.status = BookInstance.ON_LOAN
         instance.borrower = member
         instance.due_back = date.today() + timedelta(days=21)
         instance.save(update_fields=["status", "borrower", "due_back"])
@@ -77,14 +38,12 @@ def borrow(book_instance_id, member):
 
 def renew(book_instance_id, new_due_back):
     book_instance_id = str(book_instance_id).strip()
-    model = get_book_model()
-    require_circulation_contract(model)
     with transaction.atomic():
-        instance = model.objects.select_for_update().get(pk=book_instance_id)
-        if instance.borrower_id is None or instance.status != status_value(model, "on_loan"):
-            raise ValueError("Book instance has no borrower")
+        instance = BookInstance.objects.select_for_update().get(pk=book_instance_id)
+        if instance.borrower_id is None or instance.status != BookInstance.ON_LOAN:
+            raise ValueError("Bản sao sách chưa được mượn bởi độc giả nào.")
         if instance.due_back and new_due_back <= instance.due_back:
-            raise ValueError("New due date must be later than the current due date")
+            raise ValueError("Hạn trả mới phải sau ngày hẹn trả hiện tại.")
         instance.due_back = new_due_back
         instance.save(update_fields=["due_back"])
     return instance
@@ -92,14 +51,12 @@ def renew(book_instance_id, new_due_back):
 
 def return_book(book_instance_id):
     book_instance_id = str(book_instance_id).strip()
-    model = get_book_model()
-    require_circulation_contract(model)
     with transaction.atomic():
-        instance = model.objects.select_for_update().get(pk=book_instance_id)
-        if instance.borrower_id is None or instance.status != status_value(model, "on_loan"):
-            raise ValueError("Book instance has no borrower")
+        instance = BookInstance.objects.select_for_update().get(pk=book_instance_id)
+        if instance.borrower_id is None or instance.status != BookInstance.ON_LOAN:
+            raise ValueError("Bản sao sách không ở trạng thái đang mượn.")
         instance.borrower = None
         instance.due_back = None
-        instance.status = status_value(model, "available")
+        instance.status = BookInstance.AVAILABLE
         instance.save(update_fields=["borrower", "due_back", "status"])
     return instance

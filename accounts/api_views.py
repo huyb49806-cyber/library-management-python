@@ -47,9 +47,23 @@ class LoginView(APIView):
     permission_classes = ()
 
     def post(self, request):
-        serializer = TokenObtainPairSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        return Response(serializer.validated_data)
+        data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+        username = str(data.get("username", "")).strip()
+
+        # Cho phép đăng nhập bằng cả Tên đăng nhập hoặc Email
+        matched_user = User.objects.filter(email__iexact=username).first()
+        if matched_user:
+            data["username"] = matched_user.username
+
+        serializer = TokenObtainPairSerializer(data=data)
+        try:
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.validated_data)
+        except Exception:
+            return Response(
+                {"detail": "Tên đăng nhập/email hoặc mật khẩu không chính xác."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
 
 class RegisterView(generics.CreateAPIView):
@@ -159,9 +173,9 @@ class PasswordResetConfirmView(APIView):
         new_password = serializer.validated_data["new_password"]
         try:
             validate_password(new_password, user=user)
-        except ValidationError as error:
+        except ValidationError:
             return Response(
-                {"new_password": error.messages},
+                {"new_password": ["Mật khẩu quá yếu."]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -187,7 +201,7 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
         if user.borrowed_book_instances.filter(status="o").exists():
             return Response(
                 {
-                    "detail": "Không thể xóa tài khoản độc giả đang có sách mượn chưa trả. Vui lòng ghi nhận trả sách trước."
+                    "detail": "Member đang mượn sách không thể xóa. Vui lòng ghi nhận trả sách trước."
                 },
                 status=status.HTTP_409_CONFLICT,
             )

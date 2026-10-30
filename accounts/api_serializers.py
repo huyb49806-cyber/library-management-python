@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from .models import UserProfile
@@ -114,6 +115,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
         queryset=Group.objects.all(),
         required=False,
     )
+    borrowed_books_count = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -127,8 +129,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "is_staff",
             "groups",
             "password",
+            "borrowed_books_count",
         )
-        read_only_fields = ("id",)
+        read_only_fields = ("id", "borrowed_books_count")
+
+    def get_borrowed_books_count(self, obj):
+        return obj.borrowed_book_instances.filter(status="o").count()
 
     def validate_email(self, value):
         queryset = User.objects.filter(email__iexact=value)
@@ -168,7 +174,12 @@ class AdminUserSerializer(serializers.ModelSerializer):
                     getattr(self.instance, "last_name", ""),
                 ),
             )
-            validate_password(password, user=candidate)
+            try:
+                validate_password(password, user=candidate)
+            except DjangoValidationError:
+                raise serializers.ValidationError({
+                    "password": "Mật khẩu quá yếu."
+                })
 
         return attrs
 
@@ -229,12 +240,12 @@ class RegisterSerializer(serializers.Serializer):
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("Username already exists.")
+            raise serializers.ValidationError("Tên đăng nhập này đã được sử dụng.")
         return value
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Email already exists.")
+            raise serializers.ValidationError("Email này đã được sử dụng cho một tài khoản khác.")
         return value
 
     def validate_student_code(self, value):
@@ -248,7 +259,7 @@ class RegisterSerializer(serializers.Serializer):
 
         if password != password_confirm:
             raise serializers.ValidationError({
-                "password_confirm": "Passwords do not match."
+                "password_confirm": "Mật khẩu xác nhận không khớp."
             })
 
         candidate = User(
@@ -257,7 +268,12 @@ class RegisterSerializer(serializers.Serializer):
             first_name=attrs["first_name"],
             last_name=attrs["last_name"],
         )
-        validate_password(password, user=candidate)
+        try:
+            validate_password(password, user=candidate)
+        except DjangoValidationError:
+            raise serializers.ValidationError({
+                "password": "Mật khẩu quá yếu."
+            })
 
         return attrs
 

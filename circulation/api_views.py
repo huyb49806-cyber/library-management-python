@@ -1,23 +1,20 @@
 from datetime import date
 
-from django.db.models import Q
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from catalog.models import Book, BookInstance
 from .services import (
-    CatalogContractError,
     as_payload,
     borrow,
-    get_book_model,
     is_staff_operator,
     renew,
     return_book,
-    require_circulation_contract,
-    status_value,
 )
 
 User = get_user_model()
@@ -26,25 +23,12 @@ User = get_user_model()
 class CirculationView(APIView):
     permission_classes = (IsAuthenticated,)
 
-    @staticmethod
-    def catalog_error(error):
-        return Response(
-            {"detail": str(error)},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-
 
 class LoanListView(CirculationView):
     def get(self, request):
-        try:
-            model = get_book_model()
-            require_circulation_contract(model)
-        except CatalogContractError as error:
-            return self.catalog_error(error)
-
-        queryset = model.objects.filter(
+        queryset = BookInstance.objects.filter(
             borrower__isnull=False,
-            status=status_value(model, "on_loan"),
+            status=BookInstance.ON_LOAN,
         ).select_related("book")
 
         if not is_staff_operator(request.user):
@@ -90,23 +74,20 @@ class BorrowView(CirculationView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        model = get_book_model()
-        require_circulation_contract(model)
-
         inst_str = str(raw_book_instance_id).strip()
         target_instance_id = None
 
         # 1. Tìm trực tiếp theo UUID của BookInstance
         try:
-            matched_inst = model.objects.filter(pk=inst_str).first()
+            matched_inst = BookInstance.objects.filter(pk=inst_str).first()
             if matched_inst:
-                if matched_inst.status == status_value(model, "available"):
+                if matched_inst.status == BookInstance.AVAILABLE:
                     target_instance_id = matched_inst.pk
                 else:
                     # Bản sao này đang bận, tự động lấy bản sao khác có sẵn của cùng đầu sách
-                    other_inst = model.objects.filter(
+                    other_inst = BookInstance.objects.filter(
                         book_id=matched_inst.book_id,
-                        status=status_value(model, "available")
+                        status=BookInstance.AVAILABLE
                     ).first()
                     if other_inst:
                         target_instance_id = other_inst.pk
@@ -120,14 +101,14 @@ class BorrowView(CirculationView):
 
         # 2. Nếu không phải UUID, tìm theo Book ID (số nguyên)
         if not target_instance_id and inst_str.isdigit():
-            matched_inst = model.objects.filter(
+            matched_inst = BookInstance.objects.filter(
                 book_id=int(inst_str),
-                status=status_value(model, "available")
+                status=BookInstance.AVAILABLE
             ).first()
             if matched_inst:
                 target_instance_id = matched_inst.pk
             else:
-                if model.objects.filter(book_id=int(inst_str)).exists():
+                if Book.objects.filter(pk=int(inst_str)).exists():
                     return Response(
                         {"detail": f"Đầu sách #{inst_str} hiện đã hết bản sao sẵn có trong kho."},
                         status=status.HTTP_400_BAD_REQUEST,
@@ -135,13 +116,13 @@ class BorrowView(CirculationView):
 
         # 3. Tìm theo Tên sách hoặc Mã ISBN
         if not target_instance_id:
-            matched_inst = model.objects.filter(
+            matched_inst = BookInstance.objects.filter(
                 Q(book__title__iexact=inst_str) | Q(book__isbn=inst_str),
-                status=status_value(model, "available")
+                status=BookInstance.AVAILABLE
             ).first()
             if matched_inst:
                 target_instance_id = matched_inst.pk
-            elif model.objects.filter(Q(book__title__iexact=inst_str) | Q(book__isbn=inst_str)).exists():
+            elif Book.objects.filter(Q(title__iexact=inst_str) | Q(isbn=inst_str)).exists():
                 return Response(
                     {"detail": f"Sách '{inst_str}' hiện đã hết bản sao sẵn có trong kho."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -155,20 +136,16 @@ class BorrowView(CirculationView):
 
         try:
             instance = borrow(target_instance_id, member)
-        except CatalogContractError as error:
-            return self.catalog_error(error)
         except (ValueError, KeyError) as error:
             return Response(
                 {"detail": f"Không thể lập lượt mượn: {error}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except Exception as error:
-            if isinstance(error, (model.DoesNotExist, ValidationError)):
-                return Response(
-                    {"detail": "Bản sao sách không tồn tại hoặc không hợp lệ."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            raise
+        except (BookInstance.DoesNotExist, ValidationError):
+            return Response(
+                {"detail": "Bản sao sách không tồn tại hoặc không hợp lệ."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         return Response(
             as_payload(instance),
@@ -191,21 +168,16 @@ class RenewView(CirculationView):
 
             new_due_back = date.fromisoformat(raw_due_back)
             instance = renew(pk, new_due_back)
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError) as error:
             return Response(
-                {"detail": "due_back must be a later ISO date"},
+                {"detail": str(error) if str(error) else "due_back must be a later ISO date"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except CatalogContractError as error:
-            return self.catalog_error(error)
-        except Exception as error:
-            model = get_book_model()
-            if isinstance(error, (model.DoesNotExist, ValidationError)):
-                return Response(
-                    {"detail": "Book instance does not exist"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            raise
+        except (BookInstance.DoesNotExist, ValidationError):
+            return Response(
+                {"detail": "Book instance does not exist"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         return Response(as_payload(instance))
 
@@ -220,20 +192,15 @@ class ReturnView(CirculationView):
 
         try:
             instance = return_book(pk)
-        except ValueError:
+        except ValueError as error:
             return Response(
-                {"detail": "Book instance cannot be returned"},
+                {"detail": str(error)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        except CatalogContractError as error:
-            return self.catalog_error(error)
-        except Exception as error:
-            model = get_book_model()
-            if isinstance(error, (model.DoesNotExist, ValidationError)):
-                return Response(
-                    {"detail": "Book instance does not exist"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            raise
+        except (BookInstance.DoesNotExist, ValidationError):
+            return Response(
+                {"detail": "Book instance does not exist"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         return Response(as_payload(instance))
